@@ -21,7 +21,7 @@ on:
           - prod
 
 env:
-  AWS_REGION: us-east-1
+  AWS_REGION: ap-northeast-1
   STACK_NAME: video-converter-lambda
 
 jobs:

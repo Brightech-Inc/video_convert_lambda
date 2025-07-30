@@ -5,7 +5,7 @@
 set -e
 
 # 変数設定
-REGION=${AWS_REGION:-us-east-1}
+REGION=${AWS_REGION:-ap-northeast-1}
 STACK_NAME=${STACK_NAME:-video-converter-lambda}
 ENVIRONMENT=${ENVIRONMENT:-dev}
 

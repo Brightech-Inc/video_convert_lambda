@@ -29,7 +29,7 @@ AWS Lambdaを使用してMP4動画をHLS形式に変換するサービス
 
 ```bash
 # AWS認証情報を設定後
-export AWS_REGION=us-east-1
+export AWS_REGION=ap-northeast-1
 ./scripts/initial-deploy.sh
 ```
 

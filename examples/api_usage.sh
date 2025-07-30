@@ -2,7 +2,7 @@
 
 # API使用例スクリプト
 
-API_BASE_URL="https://your-api-id.execute-api.us-east-1.amazonaws.com/dev"
+API_BASE_URL="https://your-api-id.execute-api.ap-northeast-1.amazonaws.com/dev"
 
 # 1. ファイルアップロード
 echo "=== ファイルアップロード ==="
