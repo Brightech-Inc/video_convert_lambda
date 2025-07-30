@@ -37,7 +37,6 @@ Resources:
     Type: AWS::S3::Bucket
     Condition: CreateOutputBucket
     Properties:
-      BucketName: !Sub '${AWS::StackName}-output-${Environment}'
       PublicAccessBlockConfiguration:
         BlockPublicAcls: false
         BlockPublicPolicy: false
@@ -49,6 +48,9 @@ Resources:
             AllowedMethods: [GET, HEAD]
             AllowedOrigins: ['*']
             MaxAge: 3000
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-output-${Environment}'
 
   # S3バケットポリシー（パブリック読み取り）
   OutputBucketPolicy:
@@ -69,7 +71,6 @@ Resources:
     Type: AWS::S3::Bucket
     Condition: CreateBackupBucket
     Properties:
-      BucketName: !Sub '${AWS::StackName}-backup-${Environment}'
       LifecycleConfiguration:
         Rules:
           - Id: DeleteOldBackups
@@ -77,13 +78,15 @@ Resources:
             ExpirationInDays: 90
       VersioningConfiguration:
         Status: Enabled
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-backup-${Environment}'
 
   # S3バケット（アップロード用）
   UploadBucket:
     Type: AWS::S3::Bucket
     Condition: CreateUploadBucket
     Properties:
-      BucketName: !Sub '${AWS::StackName}-upload-${Environment}'
       LifecycleConfiguration:
         Rules:
           - Id: DeleteOldUploads
@@ -95,6 +98,9 @@ Resources:
             AllowedMethods: [PUT, POST]
             AllowedOrigins: ['*']
             MaxAge: 3000
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-upload-${Environment}'
 
   # Lambda実行ロール
   LambdaExecutionRole:
@@ -238,14 +244,20 @@ Outputs:
   UploadBucketName:
     Description: S3 bucket for file uploads
     Value: !If [CreateUploadBucket, !Ref UploadBucket, !Ref UploadBucketName]
+    Export:
+      Name: !Sub '${AWS::StackName}-upload-bucket'
   
   OutputBucketName:
     Description: S3 bucket for converted videos
     Value: !If [CreateOutputBucket, !Ref OutputBucket, !Ref OutputBucketName]
+    Export:
+      Name: !Sub '${AWS::StackName}-output-bucket'
   
   BackupBucketName:
     Description: S3 bucket for backup storage
     Value: !If [CreateBackupBucket, !Ref BackupBucket, !Ref BackupBucketName]
+    Export:
+      Name: !Sub '${AWS::StackName}-backup-bucket'
   
   ECRRepositoryUri:
     Description: ECR repository URI
