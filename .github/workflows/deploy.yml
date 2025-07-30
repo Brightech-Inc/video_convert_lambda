@@ -76,7 +76,30 @@ jobs:
           docker push $ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REPOSITORY:latest
 
-      - name: Deploy or Update CloudFormation stack
+      - name: Check and cleanup failed stack
+        run: |
+          # スタックの状態を確認
+          STACK_STATUS=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }} \
+            --query 'Stacks[0].StackStatus' \
+            --output text 2>/dev/null || echo "NOT_EXISTS")
+          
+          echo "Current stack status: $STACK_STATUS"
+          
+          # ROLLBACK_COMPLETE状態の場合は削除
+          if [ "$STACK_STATUS" = "ROLLBACK_COMPLETE" ]; then
+            echo "Deleting failed stack..."
+            aws cloudformation delete-stack \
+              --stack-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }}
+            
+            echo "Waiting for stack deletion to complete..."
+            aws cloudformation wait stack-delete-complete \
+              --stack-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }}
+            
+            echo "Stack deletion completed"
+          fi
+
+      - name: Deploy CloudFormation stack
         run: |
           # メインスタックのデプロイ（Lambda関数含む）
           aws cloudformation deploy \

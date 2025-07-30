@@ -42,7 +42,31 @@ echo -e "\n=== 初回用ダミーイメージのビルドとプッシュ ==="
 docker build -f Dockerfile.init -t ${ECR_URI}:latest .
 docker push ${ECR_URI}:latest
 
-# 5. メインスタックのデプロイ
+# 5. 失敗したスタックのクリーンアップ
+echo -e "\n=== スタック状態の確認とクリーンアップ ==="
+STACK_STATUS=$(aws cloudformation describe-stacks \
+    --stack-name ${STACK_NAME}-${ENVIRONMENT} \
+    --query 'Stacks[0].StackStatus' \
+    --output text \
+    --region ${REGION} 2>/dev/null || echo "NOT_EXISTS")
+
+echo "Current stack status: $STACK_STATUS"
+
+if [ "$STACK_STATUS" = "ROLLBACK_COMPLETE" ]; then
+    echo "Deleting failed stack..."
+    aws cloudformation delete-stack \
+        --stack-name ${STACK_NAME}-${ENVIRONMENT} \
+        --region ${REGION}
+    
+    echo "Waiting for stack deletion to complete..."
+    aws cloudformation wait stack-delete-complete \
+        --stack-name ${STACK_NAME}-${ENVIRONMENT} \
+        --region ${REGION}
+    
+    echo "Stack deletion completed"
+fi
+
+# 6. メインスタックのデプロイ
 echo -e "\n=== メインスタックのデプロイ ==="
 aws cloudformation deploy \
     --template-file cloudformation/template.yaml \
@@ -52,18 +76,18 @@ aws cloudformation deploy \
     --no-fail-on-empty-changeset \
     --region ${REGION}
 
-# 6. FFmpegバイナリのダウンロード
+# 7. FFmpegバイナリのダウンロード
 echo -e "\n=== FFmpegバイナリのダウンロード ==="
 mkdir -p bin
 curl -L "https://github.com/eugeneware/ffmpeg-static/releases/latest/download/linux-x64" -o bin/ffmpeg
 chmod +x bin/ffmpeg
 
-# 7. 本番用イメージのビルドとプッシュ
+# 8. 本番用イメージのビルドとプッシュ
 echo -e "\n=== 本番用イメージのビルドとプッシュ ==="
 docker build -t ${ECR_URI}:latest .
 docker push ${ECR_URI}:latest
 
-# 8. Lambda関数の更新
+# 9. Lambda関数の更新
 echo -e "\n=== Lambda関数の更新 ==="
 # Lambda関数をコンテナイメージに変更
 aws lambda update-function-configuration \
@@ -77,7 +101,7 @@ aws lambda update-function-code \
     --image-uri ${ECR_URI}:latest \
     --region ${REGION}
 
-# 9. 出力情報の表示
+# 10. 出力情報の表示
 echo -e "\n=== デプロイ完了 ==="
 aws cloudformation describe-stacks \
     --stack-name ${STACK_NAME}-${ENVIRONMENT} \
