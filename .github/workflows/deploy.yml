@@ -60,6 +60,12 @@ jobs:
             --output text)
           echo "ECR_REPOSITORY=$ECR_URI" >> $GITHUB_OUTPUT
 
+      - name: Download FFmpeg binary
+        run: |
+          mkdir -p bin
+          curl -L "https://github.com/eugeneware/ffmpeg-static/releases/latest/download/linux-x64" -o bin/ffmpeg
+          chmod +x bin/ffmpeg
+
       - name: Build and push Docker image
         env:
           ECR_REPOSITORY: ${{ steps.deploy-ecr.outputs.ECR_REPOSITORY }}

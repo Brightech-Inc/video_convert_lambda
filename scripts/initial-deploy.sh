@@ -52,19 +52,25 @@ aws cloudformation deploy \
     --no-fail-on-empty-changeset \
     --region ${REGION}
 
-# 6. 本番用イメージのビルドとプッシュ
+# 6. FFmpegバイナリのダウンロード
+echo -e "\n=== FFmpegバイナリのダウンロード ==="
+mkdir -p bin
+curl -L "https://github.com/eugeneware/ffmpeg-static/releases/latest/download/linux-x64" -o bin/ffmpeg
+chmod +x bin/ffmpeg
+
+# 7. 本番用イメージのビルドとプッシュ
 echo -e "\n=== 本番用イメージのビルドとプッシュ ==="
 docker build -t ${ECR_URI}:latest .
 docker push ${ECR_URI}:latest
 
-# 7. Lambda関数の更新
+# 8. Lambda関数の更新
 echo -e "\n=== Lambda関数の更新 ==="
 aws lambda update-function-code \
     --function-name ${STACK_NAME}-${ENVIRONMENT}-video-converter \
     --image-uri ${ECR_URI}:latest \
     --region ${REGION}
 
-# 8. 出力情報の表示
+# 9. 出力情報の表示
 echo -e "\n=== デプロイ完了 ==="
 aws cloudformation describe-stacks \
     --stack-name ${STACK_NAME}-${ENVIRONMENT} \

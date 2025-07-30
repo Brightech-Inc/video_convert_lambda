@@ -29,6 +29,9 @@ dist/
 build/
 *.egg-info/
 
+# FFmpeg binary (downloaded during CI)
+bin/
+
 # Testing
 .pytest_cache/
 .coverage

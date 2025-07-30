@@ -33,6 +33,11 @@ export AWS_REGION=ap-northeast-1
 ./scripts/initial-deploy.sh
 ```
 
+**注意:** FFmpegバイナリは自動的にダウンロードされます。手動でダウンロードする場合は：
+```bash
+./get-ffmpeg.sh
+```
+
 #### 継続的デプロイ
 
 GitHub Actionsを使用した自動デプロイ:
