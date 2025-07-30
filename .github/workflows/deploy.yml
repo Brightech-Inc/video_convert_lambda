@@ -1,0 +1,111 @@
+name: Deploy Video Converter Lambda
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+env:
+  AWS_REGION: us-east-1
+  STACK_NAME: video-converter-lambda
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Get ECR repository URI from CloudFormation
+        id: get-ecr
+        run: |
+          # スタックが存在するかチェック
+          if aws cloudformation describe-stacks --stack-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }} 2>/dev/null; then
+            ECR_URI=$(aws cloudformation describe-stacks \
+              --stack-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }} \
+              --query 'Stacks[0].Outputs[?OutputKey==`ECRRepositoryUri`].OutputValue' \
+              --output text)
+            echo "ECR_REPOSITORY=$ECR_URI" >> $GITHUB_OUTPUT
+            echo "STACK_EXISTS=true" >> $GITHUB_OUTPUT
+          else
+            echo "STACK_EXISTS=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy CloudFormation stack (if not exists)
+        if: steps.get-ecr.outputs.STACK_EXISTS == 'false'
+        run: |
+          aws cloudformation deploy \
+            --template-file cloudformation/template.yaml \
+            --stack-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }} \
+            --parameter-overrides Environment=${{ github.event.inputs.environment || 'dev' }} \
+            --capabilities CAPABILITY_IAM \
+            --no-fail-on-empty-changeset
+
+      - name: Get ECR repository URI (after stack creation)
+        if: steps.get-ecr.outputs.STACK_EXISTS == 'false'
+        id: get-ecr-new
+        run: |
+          ECR_URI=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }} \
+            --query 'Stacks[0].Outputs[?OutputKey==`ECRRepositoryUri`].OutputValue' \
+            --output text)
+          echo "ECR_REPOSITORY=$ECR_URI" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
+        env:
+          ECR_REPOSITORY: ${{ steps.get-ecr.outputs.ECR_REPOSITORY || steps.get-ecr-new.outputs.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REPOSITORY:$IMAGE_TAG $ECR_REPOSITORY:latest
+          docker push $ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REPOSITORY:latest
+
+      - name: Update Lambda function
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }}-video-converter \
+            --image-uri ${{ steps.get-ecr.outputs.ECR_REPOSITORY || steps.get-ecr-new.outputs.ECR_REPOSITORY }}:${{ github.sha }}
+
+      - name: Update CloudFormation stack
+        run: |
+          aws cloudformation deploy \
+            --template-file cloudformation/template.yaml \
+            --stack-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }} \
+            --parameter-overrides Environment=${{ github.event.inputs.environment || 'dev' }} \
+            --capabilities CAPABILITY_IAM \
+            --no-fail-on-empty-changeset
+
+      - name: Get API endpoint
+        run: |
+          API_ENDPOINT=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }} \
+            --query 'Stacks[0].Outputs[?OutputKey==`ApiEndpoint`].OutputValue' \
+            --output text)
+          echo "API Endpoint: $API_ENDPOINT"

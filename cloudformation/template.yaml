@@ -1,0 +1,246 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Video Conversion Lambda Function with API Gateway'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name
+  
+  OutputBucketName:
+    Type: String
+    Default: ''
+    Description: S3 bucket for converted videos (leave empty to create new)
+  
+  BackupBucketName:
+    Type: String
+    Default: ''
+    Description: S3 bucket for backup storage (leave empty to create new)
+  
+  UploadBucketName:
+    Type: String
+    Default: ''
+    Description: S3 bucket for file uploads (leave empty to create new)
+
+Conditions:
+  CreateOutputBucket: !Equals [!Ref OutputBucketName, '']
+  CreateBackupBucket: !Equals [!Ref BackupBucketName, '']
+  CreateUploadBucket: !Equals [!Ref UploadBucketName, '']
+
+Resources:
+  # S3バケット（出力用）
+  OutputBucket:
+    Type: AWS::S3::Bucket
+    Condition: CreateOutputBucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-output-${Environment}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, HEAD]
+            AllowedOrigins: ['*']
+            MaxAge: 3000
+
+  # S3バケットポリシー（パブリック読み取り）
+  OutputBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: CreateOutputBucket
+    Properties:
+      Bucket: !Ref OutputBucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Sub '${OutputBucket.Arn}/*'
+
+  # S3バケット（バックアップ用）
+  BackupBucket:
+    Type: AWS::S3::Bucket
+    Condition: CreateBackupBucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-backup-${Environment}'
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldBackups
+            Status: Enabled
+            ExpirationInDays: 90
+      VersioningConfiguration:
+        Status: Enabled
+
+  # S3バケット（アップロード用）
+  UploadBucket:
+    Type: AWS::S3::Bucket
+    Condition: CreateUploadBucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-upload-${Environment}'
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldUploads
+            Status: Enabled
+            ExpirationInDays: 30
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [PUT, POST]
+            AllowedOrigins: ['*']
+            MaxAge: 3000
+
+  # Lambda実行ロール
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                Resource: '*'
+
+  # ECRリポジトリ
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub '${AWS::StackName}-video-converter'
+      ImageScanningConfiguration:
+        ScanOnPush: true
+
+  # Lambda関数
+  VideoConverterFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-video-converter'
+      Role: !GetAtt LambdaExecutionRole.Arn
+      PackageType: Image
+      Code:
+        ImageUri: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepository}:latest'
+      Timeout: 900
+      MemorySize: 3008
+      Environment:
+        Variables:
+          DEFAULT_OUTPUT_BUCKET: !If [CreateOutputBucket, !Ref OutputBucket, !Ref OutputBucketName]
+          OUTPUT_BUCKET: !If [CreateOutputBucket, !Ref OutputBucket, !Ref OutputBucketName]
+          BACKUP_BUCKET: !If [CreateBackupBucket, !Ref BackupBucket, !Ref BackupBucketName]
+          UPLOAD_BUCKET: !If [CreateUploadBucket, !Ref UploadBucket, !Ref UploadBucketName]
+
+  # API Gateway
+  ApiGateway:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${AWS::StackName}-api'
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - '*'
+
+  # Lambda統合
+  LambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ApiGateway
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub
+        - 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations'
+        - LambdaArn: !GetAtt VideoConverterFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  # API Routes
+  UploadRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'POST /upload'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+
+  ConvertRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'POST /convert'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+
+  DownloadRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'GET /download/{unique_key}'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+
+  # API Stage
+  ApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref ApiGateway
+      StageName: !Ref Environment
+      AutoDeploy: true
+
+  # Lambda Permission for API Gateway
+  LambdaApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref VideoConverterFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*'
+
+Outputs:
+  ApiBaseUrl:
+    Description: API Gateway base URL
+    Value: !Sub 'https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+  
+  UploadEndpoint:
+    Description: Upload endpoint URL
+    Value: !Sub 'https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/upload'
+  
+  ConvertEndpoint:
+    Description: Convert endpoint URL
+    Value: !Sub 'https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/convert'
+  
+  DownloadEndpoint:
+    Description: Download endpoint URL (append unique_key)
+    Value: !Sub 'https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/download/'
+  
+  UploadBucketName:
+    Description: S3 bucket for file uploads
+    Value: !If [CreateUploadBucket, !Ref UploadBucket, !Ref UploadBucketName]
+  
+  OutputBucketName:
+    Description: S3 bucket for converted videos
+    Value: !If [CreateOutputBucket, !Ref OutputBucket, !Ref OutputBucketName]
+  
+  BackupBucketName:
+    Description: S3 bucket for backup storage
+    Value: !If [CreateBackupBucket, !Ref BackupBucket, !Ref BackupBucketName]
+  
+  ECRRepositoryUri:
+    Description: ECR repository URI
+    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepository}'
