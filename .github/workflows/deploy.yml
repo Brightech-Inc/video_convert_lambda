@@ -42,44 +42,27 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Get ECR repository URI from CloudFormation
-        id: get-ecr
+      - name: Deploy initial ECR stack (if needed)
+        id: deploy-ecr
         run: |
-          # スタックが存在するかチェック
-          if aws cloudformation describe-stacks --stack-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }} 2>/dev/null; then
-            ECR_URI=$(aws cloudformation describe-stacks \
-              --stack-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }} \
-              --query 'Stacks[0].Outputs[?OutputKey==`ECRRepositoryUri`].OutputValue' \
-              --output text)
-            echo "ECR_REPOSITORY=$ECR_URI" >> $GITHUB_OUTPUT
-            echo "STACK_EXISTS=true" >> $GITHUB_OUTPUT
-          else
-            echo "STACK_EXISTS=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Deploy CloudFormation stack (if not exists)
-        if: steps.get-ecr.outputs.STACK_EXISTS == 'false'
-        run: |
+          # ECRリポジトリのみを先にデプロイ
           aws cloudformation deploy \
-            --template-file cloudformation/template.yaml \
-            --stack-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }} \
+            --template-file cloudformation/initial-deploy.yaml \
+            --stack-name ${{ env.STACK_NAME }}-ecr-${{ github.event.inputs.environment || 'dev' }} \
             --parameter-overrides Environment=${{ github.event.inputs.environment || 'dev' }} \
             --capabilities CAPABILITY_IAM \
             --no-fail-on-empty-changeset
-
-      - name: Get ECR repository URI (after stack creation)
-        if: steps.get-ecr.outputs.STACK_EXISTS == 'false'
-        id: get-ecr-new
-        run: |
+          
+          # ECR URIを取得
           ECR_URI=$(aws cloudformation describe-stacks \
-            --stack-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }} \
+            --stack-name ${{ env.STACK_NAME }}-ecr-${{ github.event.inputs.environment || 'dev' }} \
             --query 'Stacks[0].Outputs[?OutputKey==`ECRRepositoryUri`].OutputValue' \
             --output text)
           echo "ECR_REPOSITORY=$ECR_URI" >> $GITHUB_OUTPUT
 
       - name: Build and push Docker image
         env:
-          ECR_REPOSITORY: ${{ steps.get-ecr.outputs.ECR_REPOSITORY || steps.get-ecr-new.outputs.ECR_REPOSITORY }}
+          ECR_REPOSITORY: ${{ steps.deploy-ecr.outputs.ECR_REPOSITORY }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker build -t $ECR_REPOSITORY:$IMAGE_TAG .
@@ -87,20 +70,22 @@ jobs:
           docker push $ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REPOSITORY:latest
 
-      - name: Update Lambda function
+      - name: Deploy or Update CloudFormation stack
         run: |
-          aws lambda update-function-code \
-            --function-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }}-video-converter \
-            --image-uri ${{ steps.get-ecr.outputs.ECR_REPOSITORY || steps.get-ecr-new.outputs.ECR_REPOSITORY }}:${{ github.sha }}
-
-      - name: Update CloudFormation stack
-        run: |
+          # メインスタックのデプロイ（Lambda関数含む）
           aws cloudformation deploy \
             --template-file cloudformation/template.yaml \
             --stack-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }} \
             --parameter-overrides Environment=${{ github.event.inputs.environment || 'dev' }} \
             --capabilities CAPABILITY_IAM \
             --no-fail-on-empty-changeset
+
+      - name: Update Lambda function code
+        run: |
+          # Lambda関数のコードを最新のイメージに更新
+          aws lambda update-function-code \
+            --function-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }}-video-converter \
+            --image-uri ${{ steps.deploy-ecr.outputs.ECR_REPOSITORY }}:${{ github.sha }} || true
 
       - name: Get API endpoint
         run: |

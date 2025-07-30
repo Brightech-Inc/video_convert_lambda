@@ -23,6 +23,18 @@ AWS Lambdaを使用してMP4動画をHLS形式に変換するサービス
 
 ### デプロイ
 
+#### 初回デプロイ
+
+初回は以下のスクリプトを実行:
+
+```bash
+# AWS認証情報を設定後
+export AWS_REGION=us-east-1
+./scripts/initial-deploy.sh
+```
+
+#### 継続的デプロイ
+
 GitHub Actionsを使用した自動デプロイ:
 
 ```bash

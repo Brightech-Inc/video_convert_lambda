@@ -129,7 +129,7 @@ Resources:
       ImageScanningConfiguration:
         ScanOnPush: true
 
-  # Lambda関数
+  # Lambda関数（初回は仮のイメージで作成）
   VideoConverterFunction:
     Type: AWS::Lambda::Function
     Properties:

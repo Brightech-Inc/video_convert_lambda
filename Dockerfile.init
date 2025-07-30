@@ -1,0 +1,6 @@
+FROM public.ecr.aws/lambda/python:3.11
+
+# 最小限のLambda関数
+RUN echo 'def lambda_handler(event, context): return {"statusCode": 200, "body": "Initial deployment"}' > lambda_function.py
+
+CMD ["lambda_function.lambda_handler"]
