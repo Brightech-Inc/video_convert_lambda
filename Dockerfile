@@ -1,18 +1,19 @@
 FROM public.ecr.aws/lambda/python:3.11
 
-# 必要なツールのインストール
+# 必要なパッケージのインストール
 RUN yum update -y && \
-    yum install -y wget xz && \
+    yum install -y curl tar && \
     yum clean all
 
-# FFmpegの静的ビルドをダウンロード
-RUN wget https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz && \
-    tar -xf ffmpeg-release-amd64-static.tar.xz && \
-    mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ && \
-    mv ffmpeg-*-amd64-static/ffprobe /usr/local/bin/ && \
+# 事前にビルドされたFFmpegバイナリをダウンロード
+RUN curl -L "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz" \
+    -o ffmpeg.tar.xz && \
+    tar -xf ffmpeg.tar.xz && \
+    cp ffmpeg-master-latest-linux64-gpl/bin/ffmpeg /usr/local/bin/ && \
+    cp ffmpeg-master-latest-linux64-gpl/bin/ffprobe /usr/local/bin/ && \
     chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe && \
-    rm -rf ffmpeg-* && \
-    yum remove -y wget xz && \
+    rm -rf ffmpeg* && \
+    yum remove -y curl tar && \
     yum clean all
 
 # 依存関係のインストール
