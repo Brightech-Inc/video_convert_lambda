@@ -65,6 +65,13 @@ docker push ${ECR_URI}:latest
 
 # 8. Lambda関数の更新
 echo -e "\n=== Lambda関数の更新 ==="
+# Lambda関数をコンテナイメージに変更
+aws lambda update-function-configuration \
+    --function-name ${STACK_NAME}-${ENVIRONMENT}-video-converter \
+    --package-type Image \
+    --region ${REGION}
+
+# イメージURIを更新
 aws lambda update-function-code \
     --function-name ${STACK_NAME}-${ENVIRONMENT}-video-converter \
     --image-uri ${ECR_URI}:latest \

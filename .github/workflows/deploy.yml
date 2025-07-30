@@ -86,12 +86,17 @@ jobs:
             --capabilities CAPABILITY_IAM \
             --no-fail-on-empty-changeset
 
-      - name: Update Lambda function code
+      - name: Update Lambda function to container image
         run: |
-          # Lambda関数のコードを最新のイメージに更新
+          # Lambda関数をコンテナイメージに変更
+          aws lambda update-function-configuration \
+            --function-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }}-video-converter \
+            --package-type Image
+          
+          # イメージURIを更新
           aws lambda update-function-code \
             --function-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }}-video-converter \
-            --image-uri ${{ steps.deploy-ecr.outputs.ECR_REPOSITORY }}:${{ github.sha }} || true
+            --image-uri ${{ steps.deploy-ecr.outputs.ECR_REPOSITORY }}:${{ github.sha }}
 
       - name: Get API endpoint
         run: |

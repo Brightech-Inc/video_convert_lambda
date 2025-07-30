@@ -129,15 +129,21 @@ Resources:
       ImageScanningConfiguration:
         ScanOnPush: true
 
-  # Lambda関数（初回は仮のイメージで作成）
+  # Lambda関数（条件付きで作成）
   VideoConverterFunction:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub '${AWS::StackName}-video-converter'
       Role: !GetAtt LambdaExecutionRole.Arn
-      PackageType: Image
       Code:
-        ImageUri: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepository}:latest'
+        ZipFile: |
+          def lambda_handler(event, context):
+              return {
+                  'statusCode': 200,
+                  'body': 'Temporary function - will be updated with container image'
+              }
+      Handler: index.lambda_handler
+      Runtime: python3.11
       Timeout: 900
       MemorySize: 3008
       Environment:
