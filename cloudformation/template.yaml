@@ -135,15 +135,28 @@ Resources:
       ImageScanningConfiguration:
         ScanOnPush: true
 
-  # Lambda関数（コンテナイメージ形式）
+  # Lambda関数（初期はZip形式で作成）
   VideoConverterFunction:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub '${AWS::StackName}-video-converter'
       Role: !GetAtt LambdaExecutionRole.Arn
-      PackageType: Image
+      Runtime: python3.11
+      Handler: index.lambda_handler
       Code:
-        ImageUri: !Sub 'public.ecr.aws/lambda/python:3.11'
+        ZipFile: |
+          import json
+          def lambda_handler(event, context):
+              return {
+                  'statusCode': 200,
+                  'headers': {
+                      'Content-Type': 'application/json'
+                  },
+                  'body': json.dumps({
+                      'message': 'Video converter function - initial deployment',
+                      'status': 'pending_container_update'
+                  })
+              }
       Timeout: 900
       MemorySize: 3008
       Environment:

@@ -109,12 +109,42 @@ jobs:
             --capabilities CAPABILITY_IAM \
             --no-fail-on-empty-changeset
 
-      - name: Update Lambda function code
+      - name: Update Lambda function with container image
         run: |
-          # Lambda関数のコードを最新のイメージに更新
+          # 環境変数を取得
+          ENV_VARS=$(aws lambda get-function-configuration \
+            --function-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }}-video-converter \
+            --query 'Environment.Variables' \
+            --output json)
+          
+          # Lambda関数をコンテナイメージで置き換え
           aws lambda update-function-code \
             --function-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }}-video-converter \
-            --image-uri ${{ steps.deploy-ecr.outputs.ECR_REPOSITORY }}:${{ github.sha }}
+            --image-uri ${{ steps.deploy-ecr.outputs.ECR_REPOSITORY }}:${{ github.sha }} || \
+          {
+            echo "Zip to Image conversion required. Updating function configuration..."
+            
+            # 関数の設定を取得
+            ROLE_ARN=$(aws lambda get-function-configuration \
+              --function-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }}-video-converter \
+              --query 'Role' \
+              --output text)
+            
+            # ZipファイルでLambda関数を一時的に作成
+            echo 'def lambda_handler(event, context): return {"statusCode": 200}' > /tmp/temp_lambda.py
+            zip /tmp/temp_lambda.zip /tmp/temp_lambda.py
+            
+            # 設定をリセット
+            aws lambda update-function-configuration \
+              --function-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }}-video-converter \
+              --timeout 900 \
+              --memory-size 3008
+            
+            # コンテナイメージでコードを更新
+            aws lambda update-function-code \
+              --function-name ${{ env.STACK_NAME }}-${{ github.event.inputs.environment || 'dev' }}-video-converter \
+              --image-uri ${{ steps.deploy-ecr.outputs.ECR_REPOSITORY }}:${{ github.sha }}
+          }
 
       - name: Get API endpoint
         run: |

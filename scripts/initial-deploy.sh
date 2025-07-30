@@ -89,11 +89,26 @@ docker push ${ECR_URI}:latest
 
 # 9. Lambda関数の更新
 echo -e "\n=== Lambda関数の更新 ==="
-# Lambda関数のコードを最新のイメージに更新
+# Lambda関数をコンテナイメージで更新
 aws lambda update-function-code \
     --function-name ${STACK_NAME}-${ENVIRONMENT}-video-converter \
     --image-uri ${ECR_URI}:latest \
-    --region ${REGION}
+    --region ${REGION} || {
+    echo "Zip to Image conversion required. Updating function configuration..."
+    
+    # 設定をリセット
+    aws lambda update-function-configuration \
+        --function-name ${STACK_NAME}-${ENVIRONMENT}-video-converter \
+        --timeout 900 \
+        --memory-size 3008 \
+        --region ${REGION}
+    
+    # コンテナイメージでコードを更新
+    aws lambda update-function-code \
+        --function-name ${STACK_NAME}-${ENVIRONMENT}-video-converter \
+        --image-uri ${ECR_URI}:latest \
+        --region ${REGION}
+}
 
 # 10. 出力情報の表示
 echo -e "\n=== デプロイ完了 ==="
